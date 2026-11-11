@@ -1,0 +1,228 @@
+diff --git a/apps/desktop/src/update-coordinator.ts b/apps/desktop/src/update-coordinator.ts
+index 475a560667..746ead936a 100644
+--- a/apps/desktop/src/update-coordinator.ts
++++ b/apps/desktop/src/update-coordinator.ts
+@@ -84,6 +84,9 @@ export class DesktopUpdateCoordinator {
+     this.updater.on('error', this.onError)
+   }
+
++  /** Whether this installation provides an update feed; local unsigned packages do not. */
++  get hasUpdateSource(): boolean { return this.enabled() }
++
+   /** Latest observable state; complete download identity remains main-process-owned. */
+   get state(): DesktopUpdateState { return this.current }
+
+@@ -148,7 +151,7 @@ export class DesktopUpdateCoordinator {
+   }
+
+   /**
+-   * Check metadata without downloading, joining any current check.
++   * Check metadata without downloading, joining any current check. Installs without a feed remain idle.
+    * @param manual - Whether a failed check must remain visible in the status indicator.
+    * @returns The check result, including a silent automatic failure when applicable.
+    */
+@@ -269,7 +272,10 @@ export class DesktopUpdateCoordinator {
+     const generation = this.generation
+     try {
+       this.assertLive()
+-      if (!this.enabled()) throw new Error('desktop update: this application has no packaged update source')
++      if (!this.hasUpdateSource) {
++        this.release = { kind: 'none' }
++        return this.setState({ phase: 'idle' })
++      }
+       const result = await this.updater.checkForUpdates()
+       if (generation !== this.generation || this.disposed) return this.current
+       if (result === null) throw new Error('desktop update: no check result was returned')
+diff --git a/apps/desktop/src/update-schedule.ts b/apps/desktop/src/update-schedule.ts
+index 7c08e569c6..bdb31c15fe 100644
+--- a/apps/desktop/src/update-schedule.ts
++++ b/apps/desktop/src/update-schedule.ts
+@@ -42,7 +42,7 @@ export class DesktopUpdateSchedule {
+    * @param now - Monotonic milliseconds, independent of wall-clock corrections.
+    */
+   constructor(
+-    private readonly updates: Pick<DesktopUpdateCoordinator, 'check' | 'state'>,
++    private readonly updates: Pick<DesktopUpdateCoordinator, 'check' | 'state' | 'hasUpdateSource'>,
+     private readonly config: DesktopUpdateScheduleConfig,
+     private readonly random: () => number = Math.random,
+     private readonly now: () => number = () => performance.now(),
+@@ -91,7 +91,7 @@ export class DesktopUpdateSchedule {
+   }
+
+   private schedule(failed: boolean): void {
+-    if (this.disposed) return
++    if (this.disposed || !this.updates.hasUpdateSource) return
+     const { intervalMs, maxBackoffMs, jitter } = this.config
+     this.delay = failed ? Math.min(maxBackoffMs, this.delay * 2) : intervalMs
+     const lower = Math.max(1_000, this.delay * (1 - jitter))
+diff --git a/apps/desktop/tests/main-startup.spec.ts b/apps/desktop/tests/main-startup.spec.ts
+index 17e16cec09..c7c2e207d6 100644
+--- a/apps/desktop/tests/main-startup.spec.ts
++++ b/apps/desktop/tests/main-startup.spec.ts
+@@ -377,6 +377,7 @@ vi.mock('../src/update-dialog.ts', () => ({ DesktopUpdateDialog: class {
+   dispose() {}
+ } }))
+ vi.mock('../src/update-coordinator.ts', () => ({ DesktopUpdateCoordinator: class {
++  readonly hasUpdateSource = true
+   selectedChannel: 'nightly' | 'stable' = 'nightly'
+   revision = 0
+   configurationFailure: 'startup' | 'cleanup' | undefined
+diff --git a/apps/desktop/tests/update-coordinator.spec.ts b/apps/desktop/tests/update-coordinator.spec.ts
+index b65f825bbc..a16c5b737b 100644
+--- a/apps/desktop/tests/update-coordinator.spec.ts
++++ b/apps/desktop/tests/update-coordinator.spec.ts
+@@ -47,7 +47,7 @@ describe('desktop release metadata', () => {
+ const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
+ afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
+
+-function fixture(channel: 'nightly' | 'stable' = 'nightly', version = '1.1.0-alpha.1', discard?: (updater: AppUpdater) => Promise<void>) {
++function fixture(channel: 'nightly' | 'stable' = 'nightly', version = '1.1.0-alpha.1', discard?: (updater: AppUpdater) => Promise<void>, enabled = true) {
+   const events = new EventEmitter()
+   const checkForUpdates = vi.fn(async () => ({
+     isUpdateAvailable: true,
+@@ -66,13 +66,27 @@ function fixture(channel: 'nightly' | 'stable' = 'nightly', version = '1.1.0-alp
+   const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall }) as unknown as AppUpdater
+   const coordinator = new DesktopUpdateCoordinator(
+     (state) => { states.push(state); return state },
+-    beforeRestart, updater, () => true, () => version, downloadResult, channel, discard,
++    beforeRestart, updater, () => enabled, () => version, downloadResult, channel, discard,
+   )
+   coordinators.push(coordinator)
+   return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall, beforeRestart, downloadResult }
+ }
+
+ describe('desktop update coordinator', () => {
++  it('keeps checks and channel selection idle without a packaged update source', async () => {
++    const f = fixture('nightly', '1.1.0-alpha.1', undefined, false)
++    expect(await f.coordinator.check()).toEqual({ phase: 'idle' })
++    expect(await f.coordinator.check(true)).toEqual({ phase: 'idle' })
++    const save = vi.fn(async () => {})
++    expect(await f.coordinator.switchChannel('stable', save)).toBe('applied')
++    expect(save).toHaveBeenCalledOnce()
++    expect(f.coordinator.state).toEqual({ phase: 'idle' })
++    expect(f.states.every(state => state.phase !== 'error')).toBe(true)
++    expect(f.checkForUpdates).not.toHaveBeenCalled()
++    expect(f.downloadUpdate).not.toHaveBeenCalled()
++    expect(f.quitAndInstall).not.toHaveBeenCalled()
++  })
++
+   it.each(['stop-failed', 'fullscreen-timeout'] as const)('keeps safe %s diagnostics separate and clears them on an explicit retry', async (kind) => {
+     const f = fixture()
+     await f.coordinator.check()
+diff --git a/apps/desktop/tests/update-schedule.spec.ts b/apps/desktop/tests/update-schedule.spec.ts
+index 9d481f21fc..d785632793 100644
+--- a/apps/desktop/tests/update-schedule.spec.ts
++++ b/apps/desktop/tests/update-schedule.spec.ts
+@@ -16,7 +16,7 @@ afterEach(() => {
+   vi.restoreAllMocks()
+ })
+
+-function fixture(jitter = 0, random = () => 0.5) {
++function fixture(jitter = 0, random = () => 0.5, enabled = true) {
+   const checkForUpdates = vi.fn(async () => ({ isUpdateAvailable: false, updateInfo: { version: '1.0.0' } }))
+   const events = new EventEmitter()
+   const downloadUpdate = vi.fn(async () => {
+@@ -26,13 +26,24 @@ function fixture(jitter = 0, random = () => 0.5) {
+   const updater = Object.assign(events, { checkForUpdates, downloadUpdate, quitAndInstall: vi.fn() }) as unknown as AppUpdater
+   const states: DesktopUpdateState[] = []
+   const coordinator = new DesktopUpdateCoordinator((state) => { states.push(state); return state }, async () => true,
+-    updater, () => true, () => '1.0.0')
++    updater, () => enabled, () => '1.0.0')
+   const schedule = new DesktopUpdateSchedule(coordinator, { intervalMs: 10_000, maxBackoffMs: 40_000, jitter }, random)
+   cleanup.push(() => { schedule.dispose(); coordinator.dispose() })
+   return { schedule, coordinator, states, checkForUpdates, downloadUpdate }
+ }
+
+ describe('ordinary update polling', () => {
++  it('does not poll or show retry errors without a packaged update source', async () => {
++    const f = fixture(0, () => 0.5, false)
++    expect(await f.schedule.check()).toEqual({ phase: 'idle' })
++    expect(await f.schedule.check(true)).toEqual({ phase: 'idle' })
++    expect(vi.getTimerCount()).toBe(0)
++    await vi.advanceTimersByTimeAsync(100_000)
++    expect(f.checkForUpdates).not.toHaveBeenCalled()
++    expect(f.states.every(state => state.phase === 'idle')).toBe(true)
++    expect(f.downloadUpdate).not.toHaveBeenCalled()
++  })
++
+   it('checks immediately, doubles failed delays up to the cap, and resets after success', async () => {
+     const f = fixture()
+     f.checkForUpdates.mockRejectedValue(new Error('offline'))
+diff --git a/apps/web/tests/built-boot.expected.e2e.ts b/apps/web/tests/built-boot.expected.e2e.ts
+index c7b7f41b65..dd76fc7d30 100644
+--- a/apps/web/tests/built-boot.expected.e2e.ts
++++ b/apps/web/tests/built-boot.expected.e2e.ts
+@@ -73,7 +73,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
+       + (commit === undefined ? '' : `-${commit}`)
+       + (clientBuildValue('DSH_CLIENT_GIT_DIRTY') === 'true' ? '-dirty' : '')
+     screen.getByText('DSH Local Build')
+-    screen.getByText(buildVersion)
++    expect(screen.queryByText(buildVersion)).toBeNull()
+   }
+   // The compact layout dropped group session counts; the fixture workspace
+   // group row renders immediately with its sessions beneath it.
+diff --git a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx b/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
+index b573b19cc8..a2e82761b4 100644
+--- a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
++++ b/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
+@@ -351,7 +351,6 @@ export function SidebarRoot({
+                     : (
+                       <span className={clsx(css.localBuildBrand, css.copyVersion)} data-copy-version onClick={copyVersion(buildVersion)}>
+                         <span className={css.localBuildTitle}>{t('brand.localBuild')}</span>
+-                        <span className={css.buildVersion}>{buildVersion}</span>
+                       </span>
+                     ),
+                 })}
+diff --git a/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx b/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx
+index f6b1b391c6..9a07eaca2e 100644
+--- a/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx
++++ b/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx
+@@ -265,15 +265,17 @@ describe('SidebarRoot shell', () => {
+     />)
+
+     expect(screen.getByText('DSH Local Build')).toBeTruthy()
+-    expect(screen.getByText('1.2.3-rc.4-0123456-dirty')).toBeTruthy()
++    expect(screen.queryByText('1.2.3-rc.4-0123456-dirty')).toBeNull()
+     expect(container.querySelector('svg')).not.toBeNull()
+   })
+
+   it.each([
+     [{ DSH_CLIENT_VERSION: '1.2.3' }, '1.2.3'],
+     [{ DSH_CLIENT_COMMIT_HASH: 'abcdef0', DSH_CLIENT_VERSION: '1.2.3' }, '1.2.3-abcdef0'],
+-  ])('omits unavailable build-version suffixes from %j', (environment, expected) => {
++  ])('keeps build metadata off the brand while copying %s', async (environment, expected) => {
+     for (const [name, value] of Object.entries(environment)) vi.stubEnv(name, value)
++    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
++    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+     render(<SidebarRoot
+       drawer={false}
+       collapsed={false} width={300}
+@@ -290,7 +292,9 @@ describe('SidebarRoot shell', () => {
+     />)
+
+     expect(screen.getByText('DSH Local Build')).toBeTruthy()
+-    expect(screen.getByText(expected)).toBeTruthy()
++    expect(screen.queryByText(expected)).toBeNull()
++    await act(async () => { fireEvent.click(screen.getByText('DSH Local Build')) })
++    expect(writeText).toHaveBeenCalledWith(expected)
+   })
+
+   it.each([false, true])('copies the local-build version from the fallback mark and name (darwin=%s)', async (darwin) => {
+@@ -323,14 +327,14 @@ describe('SidebarRoot shell', () => {
+     await act(async () => { fireEvent.click(screen.getByText('DSH Local Build')) })
+     expect(writeText).toHaveBeenLastCalledWith('1.2.3-abcdef0')
+     expect(copiedToasts()).toEqual(['Version copied'])
+-    // The brand itself keeps its title and version.
++    // The brand keeps its title without displaying build metadata.
+     expect(screen.getByText('DSH Local Build')).toBeTruthy()
+-    expect(screen.getByText('1.2.3-abcdef0')).toBeTruthy()
++    expect(screen.queryByText('1.2.3-abcdef0')).toBeNull()
+     act(() => { vi.advanceTimersByTime(4000) })
+     expect(copiedToasts()).toEqual([])
+
+     // A refused write claims no success.
+-    await act(async () => { fireEvent.click(screen.getByText('1.2.3-abcdef0')) })
++    await act(async () => { fireEvent.click(screen.getByText('DSH Local Build')) })
+     expect(copiedToasts()).toEqual([])
+
+     // The fallback mark copies too, and its click still reaches document.

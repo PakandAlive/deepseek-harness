@@ -55,7 +55,7 @@ jobs:
             if (!selected) throw new Error(`No published official release found for ${requested}`);
             const tag = selected.tag_name;
             if (!/^dsh-v[0-9A-Za-z.+-]+$/.test(tag)) throw new Error('Unexpected release tag format');
-            const releaseTag = `intel-${tag}`;
+            const releaseTag = `intel-${tag}-ui-fix1`;
             let existing;
             try {
               existing = (await github.rest.repos.getReleaseByTag({
@@ -101,6 +101,20 @@ jobs:
           ref: ${{ needs.detect.outputs.source_sha }}
           persist-credentials: false
 
+      - name: Check out fork build patches
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: .fork-build
+          sparse-checkout: .github/intel-patches
+          persist-credentials: false
+
+      - name: Apply unsigned desktop UI fixes
+        run: |
+          git apply --check .fork-build/.github/intel-patches/unsigned-ui.patch
+          git apply .fork-build/.github/intel-patches/unsigned-ui.patch
+          echo 'Applied ui-fix1: hide sidebar version and skip checks without an update source.' >> "$GITHUB_STEP_SUMMARY"
+
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
@@ -127,11 +141,19 @@ jobs:
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test unsigned desktop UI fixes
+        run: pnpm exec vitest run packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx apps/desktop/tests/update-coordinator.spec.ts apps/desktop/tests/update-schedule.spec.ts apps/desktop/tests/main-startup.spec.ts
+
       - name: Check packaging configuration and toolchain
         run: pnpm run package:desktop:mac:x64:unsigned --check
 
       - name: Build and verify unsigned DMG
         run: pnpm run package:desktop:mac:x64:unsigned
+
+      - name: Verify assembled sidebar in built bundles
+        env:
+          DSH_SNAPSHOT: replay
+        run: pnpm run test:web:built -- apps/web/tests/built-boot.expected.e2e.ts
 
       - name: Compute installer checksums
         working-directory: apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts
@@ -165,6 +187,9 @@ jobs:
             echo "Intel macOS build of official release $SOURCE_TAG."
             echo
             echo "Source: https://github.com/deepseek-ai/deepseek-harness/commit/$SOURCE_SHA"
+            echo
+            echo "Fork patches (ui-fix1): https://github.com/$GH_REPO/tree/$WORKFLOW_SHA/.github/intel-patches"
+            echo 'Hides the sidebar version line while retaining click-to-copy; skips update checks when no update source is packaged.'
             echo
             echo 'Unsigned DMG with a local ad-hoc app signature; no Apple notarization, automatic updates, or Computer Use helper.'
             echo
