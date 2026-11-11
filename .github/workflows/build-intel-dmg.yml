@@ -142,7 +142,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test unsigned desktop UI fixes
-        run: pnpm exec vitest run packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx apps/desktop/tests/update-coordinator.spec.ts apps/desktop/tests/update-schedule.spec.ts apps/desktop/tests/main-startup.spec.ts
+        run: pnpm exec vitest run packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx packages/client/ui-sidebar/tests/sidebar-snapshot.client.spec.tsx apps/desktop/tests/update-coordinator.spec.ts apps/desktop/tests/update-schedule.spec.ts apps/desktop/tests/main-startup.spec.ts
 
       - name: Check packaging configuration and toolchain
         run: pnpm run package:desktop:mac:x64:unsigned --check
@@ -197,7 +197,7 @@ jobs:
           } > "$notes"
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --target "$WORKFLOW_SHA" --draft \
-              --title "$SOURCE_TAG · Intel macOS unsigned" --notes-file "$notes"
+              --title "$SOURCE_TAG · Intel macOS unsigned · UI fix 1" --notes-file "$notes"
           fi
           gh release upload "$RELEASE_TAG" ./*.dmg SHA256SUMS.txt --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$IS_PRERELEASE" \

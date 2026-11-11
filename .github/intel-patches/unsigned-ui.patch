@@ -173,6 +173,46 @@ index b573b19cc8..a2e82761b4 100644
                        </span>
                      ),
                  })}
+diff --git a/packages/client/ui-sidebar/tests/__snapshots__/sidebar-snapshot.client.spec.tsx.snap b/packages/client/ui-sidebar/tests/__snapshots__/sidebar-snapshot.client.spec.tsx.snap
+index 186d9ef6d9..0c0cee6aa3 100644
+--- a/packages/client/ui-sidebar/tests/__snapshots__/sidebar-snapshot.client.spec.tsx.snap
++++ b/packages/client/ui-sidebar/tests/__snapshots__/sidebar-snapshot.client.spec.tsx.snap
+@@ -158,11 +158,6 @@ exports[`sidebar shell snapshots > renders Windows caption controls in expanded
+                 >
+                   DSH Local Build
+                 </span>
+-                <span
+-                  class="buildVersion"
+-                >
+-                  1.2.3-rc.4-abc1234-dirty
+-                </span>
+               </span>
+             </div>
+           </span>
+@@ -431,11 +426,6 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
+                 >
+                   DSH Local Build
+                 </span>
+-                <span
+-                  class="buildVersion"
+-                >
+-                  1.2.3-rc.4-abc1234-dirty
+-                </span>
+               </span>
+             </div>
+           </span>
+@@ -588,11 +578,6 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
+                 >
+                   DSH 本地构建
+                 </span>
+-                <span
+-                  class="buildVersion"
+-                >
+-                  1.2.3-rc.4-abc1234-dirty
+-                </span>
+               </span>
+             </div>
+           </span>
 diff --git a/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx b/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx
 index f6b1b391c6..9a07eaca2e 100644
 --- a/packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx
