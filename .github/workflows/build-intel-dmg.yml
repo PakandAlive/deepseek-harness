@@ -153,7 +153,7 @@ jobs:
       - name: Verify assembled sidebar in built bundles
         env:
           DSH_SNAPSHOT: replay
-        run: pnpm run test:web:built -- apps/web/tests/built-boot.expected.e2e.ts
+        run: pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/built-boot.expected.e2e.ts
 
       - name: Compute installer checksums
         working-directory: apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts
