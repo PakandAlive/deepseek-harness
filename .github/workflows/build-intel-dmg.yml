@@ -1,0 +1,94 @@
+name: Build Intel macOS DMG
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Official source tag or commit to package'
+        required: true
+        default: dsh-v0.2.2-rc.2
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-intel-dmg
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package unsigned Intel DMG
+    runs-on: macos-15-intel
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+      DSH_DESKTOP_TARGET_PLATFORM: darwin
+      DSH_DESKTOP_TARGET_ARCH: x64
+    steps:
+      - name: Check out official source
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: deepseek-ai/deepseek-harness
+          ref: ${{ inputs.source_ref }}
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Set up pinned pnpm from package.json
+        uses: pnpm/action-setup@v5.0.0
+
+      - name: Record source and check Intel host
+        run: |
+          node -e "if (process.platform !== 'darwin' || process.arch !== 'x64') throw Error('Intel macOS runner required')"
+          {
+            echo '### Intel macOS local build'
+            echo "Source commit: $(git rev-parse HEAD)"
+            node -p "'Product version: ' + require('./package.json').version"
+            echo 'Unsigned DMG with a local ad-hoc app signature; no Apple notarization or automatic updates.'
+            echo 'Computer Use helper is not included in this build mode.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          node --version
+          pnpm --version
+          xcodebuild -version
+          df -h .
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check packaging configuration and toolchain
+        run: pnpm run package:desktop:mac:x64:unsigned --check
+
+      - name: Build and verify unsigned DMG
+        run: pnpm run package:desktop:mac:x64:unsigned
+
+      - name: Compute installer checksums
+        working-directory: apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts
+        run: shasum -a 256 ./*.dmg > SHA256SUMS.txt
+
+      - name: Upload Intel installer
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: deepseek-harness-mac-x64-${{ github.run_id }}
+          path: |
+            apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts/*.dmg
+            apps/desktop/.desktop-build/targets/mac-x64/unsigned-artifacts/SHA256SUMS.txt
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: intel-packaging-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: apps/desktop/.desktop-build/packaging-runs/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14
