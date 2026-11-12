@@ -55,7 +55,7 @@ jobs:
             if (!selected) throw new Error(`No published official release found for ${requested}`);
             const tag = selected.tag_name;
             if (!/^dsh-v[0-9A-Za-z.+-]+$/.test(tag)) throw new Error('Unexpected release tag format');
-            const releaseTag = `intel-${tag}-ui-fix1`;
+            const releaseTag = `intel-${tag}-ui-fix2`;
             let existing;
             try {
               existing = (await github.rest.repos.getReleaseByTag({
@@ -113,7 +113,7 @@ jobs:
         run: |
           git apply --check .fork-build/.github/intel-patches/unsigned-ui.patch
           git apply .fork-build/.github/intel-patches/unsigned-ui.patch
-          echo 'Applied ui-fix1: hide sidebar version and skip checks without an update source.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Applied ui-fix2: restore original DeepSeek sidebar artwork, hide version, and skip checks without an update source.' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
@@ -142,7 +142,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Test unsigned desktop UI fixes
-        run: pnpm exec vitest run packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx packages/client/ui-sidebar/tests/sidebar-snapshot.client.spec.tsx apps/desktop/tests/update-coordinator.spec.ts apps/desktop/tests/update-schedule.spec.ts apps/desktop/tests/main-startup.spec.ts
+        run: pnpm exec vitest run packages/client/ui-brand-official/tests/browser-plugin.client.spec.tsx packages/client/ui-sidebar/tests/sidebar-root.client.spec.tsx packages/client/ui-sidebar/tests/sidebar-snapshot.client.spec.tsx apps/desktop/tests/update-coordinator.spec.ts apps/desktop/tests/update-schedule.spec.ts apps/desktop/tests/main-startup.spec.ts
 
       - name: Check packaging configuration and toolchain
         run: pnpm run package:desktop:mac:x64:unsigned --check
@@ -188,8 +188,8 @@ jobs:
             echo
             echo "Source: https://github.com/deepseek-ai/deepseek-harness/commit/$SOURCE_SHA"
             echo
-            echo "Fork patches (ui-fix1): https://github.com/$GH_REPO/tree/$WORKFLOW_SHA/.github/intel-patches"
-            echo 'Hides the sidebar version line while retaining click-to-copy; skips update checks when no update source is packaged.'
+            echo "Fork patches (ui-fix2): https://github.com/$GH_REPO/tree/$WORKFLOW_SHA/.github/intel-patches"
+            echo 'Uses the original DeepSeek whale and wordmark in the sidebar, with no local-build label or version line; skips update checks when no update source is packaged.'
             echo
             echo 'Unsigned DMG with a local ad-hoc app signature; no Apple notarization, automatic updates, or Computer Use helper.'
             echo
@@ -197,7 +197,7 @@ jobs:
           } > "$notes"
           if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --target "$WORKFLOW_SHA" --draft \
-              --title "$SOURCE_TAG · Intel macOS unsigned · UI fix 1" --notes-file "$notes"
+              --title "$SOURCE_TAG · Intel macOS unsigned · UI fix 2" --notes-file "$notes"
           fi
           gh release upload "$RELEASE_TAG" ./*.dmg SHA256SUMS.txt --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$IS_PRERELEASE" \

@@ -149,10 +149,20 @@ index 9d481f21fc..d785632793 100644
      const f = fixture()
      f.checkForUpdates.mockRejectedValue(new Error('offline'))
 diff --git a/apps/web/tests/built-boot.expected.e2e.ts b/apps/web/tests/built-boot.expected.e2e.ts
-index c7b7f41b65..dd76fc7d30 100644
+index c7b7f41b65..2c828b785d 100644
 --- a/apps/web/tests/built-boot.expected.e2e.ts
 +++ b/apps/web/tests/built-boot.expected.e2e.ts
-@@ -73,7 +73,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
+@@ -61,7 +61,8 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
+
+   // The sidebar renders from the boot graph: every inject layer activated.
+   const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+-  if (clientBuildValue('DSH_CLIENT_BUILD_PROFILE') === 'official') {
++  const profile = clientBuildValue('DSH_CLIENT_BUILD_PROFILE')
++  if (profile === 'official' || profile === 'local') {
+     expect(document.querySelector('svg[viewBox="26 0 156 24"]')).not.toBeNull()
+     expect(screen.queryByText('DSH Local Build')).toBeNull()
+   } else {
+@@ -73,7 +74,7 @@ it('boots the built plugin graph and renders a fixture session end to end', asyn
        + (commit === undefined ? '' : `-${commit}`)
        + (clientBuildValue('DSH_CLIENT_GIT_DIRTY') === 'true' ? '-dirty' : '')
      screen.getByText('DSH Local Build')
@@ -161,6 +171,46 @@ index c7b7f41b65..dd76fc7d30 100644
    }
    // The compact layout dropped group session counts; the fixture workspace
    // group row renders immediately with its sessions beneath it.
+diff --git a/packages/client/ui-brand-official/src/client/index.ts b/packages/client/ui-brand-official/src/client/index.ts
+index e5dc78b099..764a4ac492 100644
+--- a/packages/client/ui-brand-official/src/client/index.ts
++++ b/packages/client/ui-brand-official/src/client/index.ts
+@@ -18,7 +18,8 @@ export function apply(ctx: ClientContext): void {
+     name: 'conversation.hero.frame',
+     id: 'pixel-whale',
+   }, PixelWhale))
+-  if (process.env.DSH_CLIENT_BUILD_PROFILE !== 'official') return
++  const profile = process.env.DSH_CLIENT_BUILD_PROFILE
++  if (profile !== 'official' && profile !== 'local') return
+   ctx.slots.inject('sidebar.brand.mark', () =>
+     ctx.slots.inject('sidebar.brand.name', function* () {
+       yield ctx.slots.register({ name: 'sidebar.brand.mark' }, OfficialBrandMark)
+diff --git a/packages/client/ui-brand-official/tests/browser-plugin.client.spec.tsx b/packages/client/ui-brand-official/tests/browser-plugin.client.spec.tsx
+index 306023be8f..ed71dbccb3 100644
+--- a/packages/client/ui-brand-official/tests/browser-plugin.client.spec.tsx
++++ b/packages/client/ui-brand-official/tests/browser-plugin.client.spec.tsx
+@@ -46,8 +46,8 @@ describe('official browser-brand plugin', () => {
+     expect(inject).toEqual(['slots'])
+   })
+
+-  it('keeps local sidebar branding and provides the same blank-home feedback', async () => {
+-    vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', 'local')
++  it('keeps fallback sidebar branding for an unspecified profile and provides blank-home feedback', async () => {
++    vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', undefined)
+     const subject = await bench()
+     await subject.ctx.plugin({ inject: [...inject], apply }).await()
+     expect(subject.slots.entries('sidebar.brand.mark')).toHaveLength(0)
+@@ -55,8 +55,8 @@ describe('official browser-brand plugin', () => {
+     expect(subject.slots.entries('conversation.hero.frame')).toHaveLength(1)
+   })
+
+-  it('fills declarations before or after apply and removes every occupant on teardown', async () => {
+-    vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', 'official')
++  it.each(['official', 'local'])('fills declarations before or after apply and removes every occupant on teardown for %s', async (profile) => {
++    vi.stubEnv('DSH_CLIENT_BUILD_PROFILE', profile)
+     const before = await bench()
+     const fiber = before.ctx.plugin({ inject: [...inject], apply })
+     await fiber.await()
 diff --git a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx b/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
 index b573b19cc8..a2e82761b4 100644
 --- a/packages/client/ui-sidebar/src/client/SidebarRoot.tsx
