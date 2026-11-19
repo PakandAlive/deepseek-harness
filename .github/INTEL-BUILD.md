@@ -2,7 +2,7 @@
 
 ## Automatic official-release builds
 
-The `Build Intel macOS DMG` workflow checks official GitHub Releases every 30 minutes (at minutes 17 and 47 of each UTC hour). It selects the most recently published non-draft `dsh-v*` release, including prereleases such as `rc` versions. It does not build unreleased master commits or attempt to backfill every historical release. GitHub scheduling delays and service outages can delay checks; this is polling, not an immediate upstream webhook.
+The `Build Intel macOS DMG` workflow checks official GitHub Releases every 30 minutes (at minutes 13 and 43 of each UTC hour). It selects the most recently published non-draft `dsh-v*` release, including prereleases such as `rc` versions. It does not build unreleased master commits or attempt to backfill every historical release. GitHub scheduling delays and service outages can delay checks; this is polling, not an immediate upstream webhook.
 
 The workflow resolves the official release tag to a commit SHA before packaging. A completed installer release in this fork named `intel-<official-tag>-ui-fix2`, containing a nonempty DMG and `SHA256SUMS.txt`, prevents duplicate builds. Failed builds and incomplete draft releases are retried on the next check while that version remains the latest release. A release becomes public only after both assets upload successfully.
 
